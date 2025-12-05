@@ -1,10 +1,13 @@
 {
   "facts": [
-    "Greek(Socrates)"
+    "Cat(Eve)",
+    "Dog(Bob)"
   ],
   "rules": [
-    "forall x. (Human(x) -> Mortal(x))",
-    "forall x. (Greek(x) -> Human(x))"
+    "forall x. (Cat(x) -> not Dog(x))",
+    "forall x. (Cat(x) -> Animal(x))",
+    "forall x. (Dog(x) -> Mammal(x))",
+    "forall x. (Mammal(x) -> Animal(x))"
   ],
   "other_formulas": []
 }

@@ -61,9 +61,7 @@ python main.py --all "All humans are mortal" "If Some daisies are flowers then A
 
 python compare_outputs.py outputs/folio/parser_validation_summary.json outputs/folio/llm_gemini_validation_summary.json --first-label parser --second-label gemini
 
-python -m benchmarks.run_llm --dataset folio --split validation --mode translation   --model gemini:gemini-flash-latest --cache   --output-jsonl outputs/folio/llm_gemini_validation_rows.jsonl   --summary-json outputs/folio/llm_gemini_validation_summary.json
-
-python -m benchmarks.run_translation --dataset folio --split validation  --output-jsonl outputs/folio/parser_validation_rows.jsonl  --summary-json outputs/folio/parser_validation_summary.json
+python -m benchmarks.folio_gemini_runner --split validation --unit sentence --model gemini:gemini-2.0-flash --cache --output-jsonl outputs/folio/llm_validation_rows.jsonl --summary-json outputs/folio/llm_validation_summary.json
 ```
 
 Example output:
@@ -175,5 +173,4 @@ AE 0 Socrates
 Finish
 ```
 
-
-FOL resolution master is a tool for resolution of 
+FOL resolution master is a tool for resolution of

@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 class KnowledgeBase:
+    NEG_PREFIX = "NEG_"
+    _literal_regex = re.compile(
+        r"(?P<neg>not\s+)?(?P<pred>[A-Z][A-Za-z0-9_]*)\((?P<args>[^()]+)\)"
+    )
+
     def __init__(self) -> None:
         # 1. Logic Environment (Persistent Scope for exec/eval)
         # This dictionary acts as the "memory" for pyDatalog variables.
@@ -40,17 +45,18 @@ class KnowledgeBase:
             # Unwrap pyDatalog tuples/lists
             while isinstance(val, (list, tuple)) and len(val) == 1:
                 val = val[0]
-            
+
             # If it's still a list/tuple (e.g. multiple args), format it nicely
             if isinstance(val, (list, tuple)):
                 val_str = ", ".join(str(v) for v in val)
             else:
                 val_str = str(val)
 
-            self.trace_log.append(f"Derived {pred}({val_str})")
+            pretty_pred = self._format_predicate_name(pred)
+            self.trace_log.append(f"Derived {pretty_pred}({val_str})")
             return True
 
-        self.logic_env['_log_step'] = _log_step_impl
+        self.logic_env["_log_step"] = _log_step_impl
 
         # 2. Internal State Storage (for UI/API listing)
         self.state: Dict[str, Any] = {
@@ -123,9 +129,14 @@ class KnowledgeBase:
             )
             if exist_match:
                 body = exist_match.group(1)
-                # Convert "A(x) & B(x)" -> "A(X) & B(X)"
+                # Convert "A(x) & not B(x)" -> "A(X) & __not__B(X)"
                 datalog_query = self._convert_body_to_datalog(body)
+                for token in re.findall(r"([A-Z_][A-Za-z0-9_]*)\(", datalog_query):
+                    if token.startswith("_"):
+                        continue
+                    self._ensure_predicate(token)
                 trace.append(f"Executing Query: {datalog_query}")
+                self.trace_log.clear()
 
                 # Ask pyDatalog using the persistent logic environment
                 try:
@@ -143,17 +154,19 @@ class KnowledgeBase:
                     return False, trace
 
             # 2. Specific Fact Query: "Mortal(Socrates)"
-            fact_match = re.match(r"^\s*([A-Z]\w*)\((.+)\)\s*$", fol)
-            if fact_match:
-                pred, args = fact_match.groups()
-                # Ensure predicate exists
-                self._ensure_predicate(pred)
+            literal = self._parse_fact_literal(fol)
+            if literal:
+                pred, args, negated = literal
+                encoded_pred = self._encode_predicate(pred, negated)
+                self._ensure_predicate(encoded_pred)
 
-                query_str = f"{pred}('{args}')"
-                trace.append(f"Checking Fact: {query_str}")
+                args_code, args_display = self._format_arguments_for_fact(args)
+                query_str = f"{encoded_pred}({args_code})"
+                friendly_pred = self._format_predicate_name(encoded_pred)
+                trace.append(f"Checking Fact: {friendly_pred}({args_display})")
 
                 # Clear previous trace log
-                # self.trace_log.clear()
+                self.trace_log.clear()
 
                 try:
                     results = eval(query_str, self.logic_env)
@@ -162,8 +175,9 @@ class KnowledgeBase:
                     return False, trace
 
                 if results:
-                    trace.append(f"Fact verified. {pred}('{args}') is True.")
-                    # Append the derivation trace
+                    trace.append(
+                        f"Fact verified. {friendly_pred}({args_display}) is True."
+                    )
                     if self.trace_log:
                         trace.append("Derivation Steps:")
                         trace.extend([f"  - {step}" for step in self.trace_log])
@@ -188,21 +202,23 @@ class KnowledgeBase:
         self.logic_env = {}
         exec("from pyDatalog import pyDatalog", self.logic_env)
         exec("pyDatalog.create_terms('X, Y, Z, _Trace, _log_step')", self.logic_env)
-        
+
         # Re-inject logging function
         def _log_step_impl(pred, entity):
             val = entity
             while isinstance(val, (list, tuple)) and len(val) == 1:
                 val = val[0]
-            
+
             if isinstance(val, (list, tuple)):
                 val_str = ", ".join(str(v) for v in val)
             else:
                 val_str = str(val)
 
-            self.trace_log.append(f"Derived {pred}({val_str})")
+            pretty_pred = self._format_predicate_name(pred)
+            self.trace_log.append(f"Derived {pretty_pred}({val_str})")
             return True
-        self.logic_env['_log_step'] = _log_step_impl
+
+        self.logic_env["_log_step"] = _log_step_impl
 
         self._predicates.clear()
         self._save()
@@ -249,15 +265,18 @@ class KnowledgeBase:
 
     def _try_add_fact(self, fol: str) -> bool:
         """Parses 'Human(Socrates)' -> + Human('Socrates')"""
-        m = re.match(r"^\s*([A-Z]\w*)\(([a-zA-Z0-9_]+)\)\s*$", fol)
-        if not m:
+        parsed = self._parse_fact_literal(fol)
+        if not parsed:
             return False
 
-        pred, entity = m.groups()
-        self._ensure_predicate(pred)
+        pred, args, negated = parsed
+        encoded_pred = self._encode_predicate(pred, negated)
+        self._ensure_predicate(encoded_pred)
+
+        args_code, _ = self._format_arguments_for_fact(args)
 
         # Execute in logic_env
-        code = f"+ {pred}('{entity}')"
+        code = f"+ {encoded_pred}({args_code})"
         try:
             exec(code, self.logic_env)
             logger.info(f"Executed: {code}")
@@ -311,11 +330,70 @@ class KnowledgeBase:
             return False
 
     def _convert_body_to_datalog(self, expr_str: str) -> str:
-        # Normalize variables: (x) -> (X)
-        step1 = re.sub(r"\(([a-z])\)", "(X)", expr_str)
-        # Normalize operators
-        step2 = step1.replace(" and ", " & ").replace(" or ", " | ")
-        return step2.strip()
+        expr = expr_str.replace(" and ", " & ").replace(" or ", " | ")
+
+        def _replace_literal(match: re.Match) -> str:
+            is_neg = bool(match.group("neg"))
+            pred = match.group("pred")
+            args = match.group("args")
+            encoded = self._encode_predicate(pred, is_neg)
+            norm_args = self._normalize_arguments(args)
+            return f"{encoded}({norm_args})"
+
+        transformed = self._literal_regex.sub(_replace_literal, expr)
+        return transformed.strip()
+
+    def _encode_predicate(self, name: str, negated: bool) -> str:
+        return f"{self.NEG_PREFIX}{name}" if negated else name
+
+    def _format_predicate_name(self, encoded: str) -> str:
+        if encoded.startswith(self.NEG_PREFIX):
+            return f"not {encoded[len(self.NEG_PREFIX):]}"
+        return encoded
+
+    def _normalize_arguments(self, args_str: str) -> str:
+        args = [arg.strip() for arg in args_str.split(",")]
+        normalized: List[str] = []
+        for arg in args:
+            if re.fullmatch(r"[a-z]", arg):
+                normalized.append(arg.upper())
+            else:
+                normalized.append(arg)
+        return ", ".join(normalized)
+
+    def _parse_fact_literal(self, fol: str) -> Optional[Tuple[str, List[str], bool]]:
+        m = re.match(r"^\s*(not\s+)?([A-Z][A-Za-z0-9_]*)\(([^()]+)\)\s*$", fol)
+        if not m:
+            return None
+
+        negated = bool(m.group(1))
+        pred = m.group(2)
+        args_raw = [arg.strip() for arg in m.group(3).split(",")]
+        if not all(args_raw):
+            return None
+        return pred, args_raw, negated
+
+    def _quote_constant(self, value: str) -> str:
+        stripped = value.strip()
+        if (stripped.startswith("'") and stripped.endswith("'")) or (
+            stripped.startswith('"') and stripped.endswith('"')
+        ):
+            stripped = stripped[1:-1]
+        escaped = stripped.replace("'", "\\'")
+        return f"'{escaped}'"
+
+    def _format_arguments_for_fact(self, args: List[str]) -> Tuple[str, str]:
+        code_args = ", ".join(self._quote_constant(arg) for arg in args)
+        display_parts = []
+        for arg in args:
+            token = arg.strip()
+            if (token.startswith("'") and token.endswith("'")) or (
+                token.startswith('"') and token.endswith('"')
+            ):
+                token = token[1:-1]
+            display_parts.append(token)
+        display_args = ", ".join(display_parts)
+        return code_args, display_args
 
     # ==========================================
     # PERSISTENCE

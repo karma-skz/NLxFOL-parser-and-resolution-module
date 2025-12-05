@@ -8,3 +8,4 @@ python-dotenv>=1.0.1
 tqdm>=4.66.1
 zss>=1.2.0
 pyDatalog
+matplotlib>=3.8.0

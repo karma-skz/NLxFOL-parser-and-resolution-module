@@ -1,9 +1,0 @@
-1
-~Immortal(Zeus)
-6
-(God(x) => Immortal(x))
-God(Zeus)
-(Human(x) => ~God(x))
-Human(Judy)
-(Human(x) => Mortal(x))
-(God(SkolemX0) & Powerful(SkolemX0))

@@ -1,72 +1,141 @@
+"""Utility helpers for scoring NL→FOL translation experiments."""
+
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from typing import Dict, Iterable, List
+import difflib
+import re
+from collections import defaultdict
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
+
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 
 
-def aggregate_translation_rows(rows: Iterable[Dict[str, object]]) -> Dict[str, object]:
-    rows_list: List[Dict[str, object]] = list(rows)
-    total = len(rows_list)
-    success = sum(1 for row in rows_list if not row.get("error"))
+def _normalize_formula(formula: str) -> str:
+    text = formula.strip()
+    replacements = {
+        "∀": "forall ",
+        "∃": "exists ",
+        "¬": "not ",
+        "→": "->",
+        "⇒": "->",
+        "↔": "<->",
+        "⇔": "<->",
+        "∧": "&",
+        "∨": "|",
+        "⊕": " xor ",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
-    validator_counts: Dict[str, Counter] = defaultdict(Counter)
-    parsing_totals: Dict[str, float] = defaultdict(float)
-    parsing_counts: Dict[str, int] = defaultdict(int)
-    for row in rows_list:
-        validators = row.get("validators") or {}
-        for name, passed in validators.items():
-            validator_counts[name]["passed" if passed else "failed"] += 1
-        metrics = row.get("parsing_metrics") or {}
-        for key, value in metrics.items():
-            parsing_totals[key] += float(value)
-            parsing_counts[key] += 1
 
-    summary = {
+def _tokenize_formula(formula: str) -> List[str]:
+    cleaned = _normalize_formula(formula)
+    return cleaned.split()
+
+
+def _extract_predicates(formula: str) -> List[str]:
+    matches = re.findall(r"([A-Z][A-Za-z0-9_]*)\s*\(", formula)
+    return matches
+
+
+def compute_parsing_metrics(
+    gold: str | None, translation: str | None
+) -> Dict[str, float] | None:
+    if not gold or not translation:
+        return None
+    gold_norm = _normalize_formula(gold)
+    trans_norm = _normalize_formula(translation)
+    exact_match = 1.0 if gold_norm == trans_norm else 0.0
+
+    gold_predicates = _extract_predicates(gold_norm)
+    trans_predicates = _extract_predicates(trans_norm)
+    gold_set = set(gold_predicates)
+    trans_set = set(trans_predicates)
+    intersection = gold_set & trans_set
+    precision = len(intersection) / len(trans_set) if trans_set else 0.0
+    recall = len(intersection) / len(gold_set) if gold_set else 0.0
+    if precision + recall > 0:
+        predicate_f1 = 2 * precision * recall / (precision + recall)
+    else:
+        predicate_f1 = 0.0
+
+    smooth = SmoothingFunction().method1
+    gold_tokens = _tokenize_formula(gold_norm)
+    trans_tokens = _tokenize_formula(trans_norm)
+    if gold_tokens and trans_tokens:
+        bleu = sentence_bleu([gold_tokens], trans_tokens, smoothing_function=smooth)
+    else:
+        bleu = 0.0
+
+    tree_similarity = difflib.SequenceMatcher(None, trans_norm, gold_norm).ratio()
+
+    return {
+        "exact_match": exact_match,
+        "predicate_precision": precision,
+        "predicate_recall": recall,
+        "predicate_f1": predicate_f1,
+        "bleu": bleu,
+        "tree_similarity": tree_similarity,
+    }
+
+
+def _mean(values: Sequence[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _aggregate_parsing_metrics(
+    metrics: Iterable[Mapping[str, float]],
+) -> Dict[str, float]:
+    buckets: Dict[str, List[float]] = defaultdict(list)
+    for metric in metrics:
+        for key, value in metric.items():
+            if value is not None:
+                buckets[key].append(float(value))
+    return {key: _mean(vals) for key, vals in buckets.items()}
+
+
+def aggregate_translation_rows(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    total = len(rows)
+    success = 0
+    validators: Dict[str, Dict[str, int]] = defaultdict(
+        lambda: {"passed": 0, "failed": 0}
+    )
+    parsing_bucket: List[Dict[str, float]] = []
+
+    for row in rows:
+        translation = row.get("translation")
+        error = row.get("error")
+        if translation and not error:
+            success += 1
+        row_validators = row.get("validators") or {}
+        for name, passed in row_validators.items():
+            key = "passed" if passed else "failed"
+            validators[name][key] += 1
+        metrics = row.get("parsing_metrics")
+        if not metrics:
+            metrics = compute_parsing_metrics(row.get("gold_fol"), translation)
+        if metrics:
+            parsing_bucket.append(metrics)
+
+    summary: Dict[str, Any] = {
         "total_sentences": total,
         "translations": success,
         "translation_rate": (success / total) if total else 0.0,
-        "validators": {
-            name: {
-                "passed": counts.get("passed", 0),
-                "failed": counts.get("failed", 0),
-            }
-            for name, counts in validator_counts.items()
-        },
-        "parsing_metrics": {
-            key: (parsing_totals[key] / parsing_counts[key])
-            for key in parsing_totals
-            if parsing_counts[key]
-        },
     }
+    if validators:
+        summary["validators"] = validators
+    if parsing_bucket:
+        summary["parsing_metrics"] = _aggregate_parsing_metrics(parsing_bucket)
     return summary
 
 
-def aggregate_example_rows(rows: Iterable[Dict[str, object]]) -> Dict[str, object]:
-    rows_list: List[Dict[str, object]] = list(rows)
-    sentence_rows: List[Dict[str, object]] = []
-    for row in rows_list:
-        sentence_rows.extend(row.get("sentences") or [])
-    summary = aggregate_translation_rows(sentence_rows)
-    summary["total_examples"] = len(rows_list)
-    return summary
-
-
-def aggregate_entailment_rows(rows: Iterable[Dict[str, object]]) -> Dict[str, object]:
-    rows_list: List[Dict[str, object]] = list(rows)
-    total = len(rows_list)
-    correct = 0
-    label_counts = Counter()
-    for row in rows_list:
-        pred = row.get("predicted_label")
-        gold = row.get("label")
-        if pred:
-            label_counts[pred] += 1
-        if pred and gold:
-            if pred.lower() == str(gold).lower():
-                correct += 1
+def aggregate_entailment_rows(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    total = len(rows)
+    entailed = sum(1 for row in rows if row.get("entailed"))
     return {
         "total_examples": total,
-        "predictions": sum(label_counts.values()),
-        "accuracy": (correct / total) if total else 0.0,
-        "label_distribution": dict(label_counts),
+        "entailed": entailed,
+        "entailed_rate": (entailed / total) if total else 0.0,
     }

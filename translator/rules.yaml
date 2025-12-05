@@ -146,6 +146,14 @@
   pattern: ["PROPN", "VERB", "DET?", "NOUN"]
   template: "/VERB(/PROPN, /NOUN)"
 
+- name: "propn-aux-not-adj"
+  pattern: ["PROPN", "AUX", "not", "ADJ"]
+  template: "not /ADJ(/PROPN)"
+
+- name: "propn-aux-not-noun"
+  pattern: ["PROPN", "AUX", "not", "DET?", "NOUN"]
+  template: "not /NOUN(/PROPN)"
+
 - name: "dep-transitive-verb"
   dependency:
     verb: { pos: VERB, placeholder: "/V" }
@@ -179,6 +187,34 @@
 - name: "aux-propn-noun"
   pattern: ["AUX", "PROPN", "DET?", "NOUN"]
   template: "/NOUN(/PROPN)"
+
+# ==========================================
+# Negated quantifiers
+# ==========================================
+
+- name: "not-all-noun-aux-adj"
+  pattern: ["not", "all", "DET?", "NOUN", "AUX", "ADJ"]
+  template: "exists x. (/NOUN(x) & not /ADJ(x))"
+
+- name: "not-all-noun-aux-noun"
+  pattern: ["not", "all", "DET?", "NOUN", "AUX", "DET?", "NOUN"]
+  template: "exists x. (/NOUN_1(x) & not /NOUN_2(x))"
+
+- name: "not-every-noun-aux-adj"
+  pattern: ["not", "every", "DET?", "NOUN", "AUX", "ADJ"]
+  template: "exists x. (/NOUN(x) & not /ADJ(x))"
+
+- name: "not-every-noun-aux-noun"
+  pattern: ["not", "every", "DET?", "NOUN", "AUX", "DET?", "NOUN"]
+  template: "exists x. (/NOUN_1(x) & not /NOUN_2(x))"
+
+- name: "not-each-noun-aux-adj"
+  pattern: ["not", "each", "DET?", "NOUN", "AUX", "ADJ"]
+  template: "exists x. (/NOUN(x) & not /ADJ(x))"
+
+- name: "not-each-noun-aux-noun"
+  pattern: ["not", "each", "DET?", "NOUN", "AUX", "DET?", "NOUN"]
+  template: "exists x. (/NOUN_1(x) & not /NOUN_2(x))"
 
 # ==========================================
 # PHASE 1 EXPANSION: Relative Clauses

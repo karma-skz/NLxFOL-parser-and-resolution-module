@@ -1,0 +1,10 @@
+{
+  "facts": [],
+  "rules": [
+    "forall x. (Dragon(x) -> Dangerous(x))"
+  ],
+  "other_formulas": [
+    "exists x. (Dragon(x))",
+    "exists x. (Human(x) & Brave(x))"
+  ]
+}

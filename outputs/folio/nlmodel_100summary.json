@@ -1,0 +1,27 @@
+{
+  "total_sentences": 338,
+  "translations": 127,
+  "translation_rate": 0.3757396449704142,
+  "validators": {
+    "lark": {
+      "passed": 127,
+      "failed": 0
+    },
+    "nltk": {
+      "passed": 127,
+      "failed": 0
+    },
+    "fomaster": {
+      "passed": 127,
+      "failed": 0
+    }
+  },
+  "parsing_metrics": {
+    "exact_match": 0.0,
+    "predicate_precision": 0.2992125984251969,
+    "predicate_recall": 0.2795275590551181,
+    "predicate_f1": 0.2782152230971129,
+    "bleu": 0.05743033693001142,
+    "tree_similarity": 0.4862270009248232
+  }
+}

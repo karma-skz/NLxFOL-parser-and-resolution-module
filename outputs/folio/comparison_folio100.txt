@@ -1,0 +1,17 @@
+Metric                                            Rule Parser     Gemini 2.0 Flash {'Delta (b-a)':>15}
+------------------------------------------------------------------------------------------------------
+parsing_metrics.bleu                                 0.057430             0.225531       +0.168100
+parsing_metrics.exact_match                          0.000000             0.000000       +0.000000
+parsing_metrics.predicate_f1                         0.278215             0.635821       +0.357606
+parsing_metrics.predicate_precision                  0.299213             0.635821       +0.336608
+parsing_metrics.predicate_recall                     0.279528             0.635821       +0.356293
+parsing_metrics.tree_similarity                      0.486227             0.509190       +0.022963
+total_sentences                                           338                  338       +0.000000
+translation_rate                                     0.375740             1.000000       +0.624260
+translations                                              127                  338     +211.000000
+validators.fomaster.failed                                  0                   28      +28.000000
+validators.fomaster.passed                                127                  310     +183.000000
+validators.lark.failed                                      0                  262     +262.000000
+validators.lark.passed                                    127                   76      -51.000000
+validators.nltk.failed                                      0                   66      +66.000000
+validators.nltk.passed                                    127                  272     +145.000000
